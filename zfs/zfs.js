@@ -1032,58 +1032,70 @@ function FnZfsVersionCompare(version = { installed, threshold }) {
 
 function FnZfsVersionGet() {
     let process = {
-        command: ["/bin/cat", "/sys/module/zfs/version"]
+        command: []
     };
     let zfs = {
         success: false,
         threshold: "0.8"
     };
 
-    FnConsole.log[2]("ZFS, Version, Get: In Progress");
-    FnConsole.log[3](FnConsoleCommand({ command: process.command }));
-
-    return cockpit.spawn(process.command, { err: "out" })
-        .done(function (data, message) {
-            FnConsole.log[4](FnConsoleVerbose({ data: data, message: "ZFS, Version, Get:" }));
-
-            if (data) {
-                zfsmanager.zfs.version = data.replace(/\s+/g, "");
-            }
-
-            if (!data || FnZfsVersionCompare({ installed: zfsmanager.zfs.version, threshold: zfs.threshold }) < 0) {
-                FnConsole.error("ZFS, Version, Get: Failed, Message: Version " + (zfsmanager.zfs.version ? zfsmanager.zfs.version : "0") + " < " + zfs.threshold);
-            } else {
-                zfs.success = true;
-
-                FnConsole.log[1]("ZFS, Version, Get: Success, Version: " + (data ? data : message));
-            }
+    // Detect if the system is NixOS
+    cockpit.spawn(["grep", "-qi", "nixos", "/etc/os-release"])
+        .done(function() {
+            // System is NixOS
+            process.command = ["/run/current-system/sw/bin/cat", "/sys/module/zfs/version"];
         })
-        .fail(function (message, data) {
-            FnConsole.error("ZFS, Version, Get: Failed, Message: " + (data ? data : message));
+        .fail(function() {
+            // System is not NixOS, fall back to /bin/cat
+            process.command = ["/bin/cat", "/sys/module/zfs/version"];
         })
-        .finally(function () {
-            if (!zfs.success) {
-                zfs.message = `
-                    <div class="blank-slate-pf-icon">
-                        <i class="fa fa-exclamation-circle"></i>
-                    </div>
-                    <h1>This package requires ZFS version ` + zfs.threshold + ` or later</h1>
-                    <p>If ZFS is installed, check the module is loaded into the kernel.</p>
-                    <div class="blank-slate-pf-main-action">
-                        <button id="btn-alerts-requirements-zfs-refresh" class="btn btn-primary btn-lg" tabIndex="-1">Refresh</button>
-                    </div>
-                `;
+        .always(function() {
+            FnConsole.log[2]("ZFS, Version, Get: In Progress");
+            FnConsole.log[3](FnConsoleCommand({ command: process.command }));
 
-                $("#alerts-requirements").removeClass("hidden").html(zfs.message);
-                $("#container").addClass("hidden");
-            } else {
-                if (!zfsmanager.configuration.samba.manage) {
-                    $("#alerts-requirements").empty().addClass("hidden");
-                    $("#container").removeClass("hidden");
-                }
-            }
+            cockpit.spawn(process.command, { err: "out" })
+                .done(function(data, message) {
+                    FnConsole.log[4](FnConsoleVerbose({ data: data, message: "ZFS, Version, Get:" }));
+
+                    if (data) {
+                        zfsmanager.zfs.version = data.replace(/\s+/g, "");
+                    }
+
+                    if (!data || FnZfsVersionCompare({ installed: zfsmanager.zfs.version, threshold: zfs.threshold }) < 0) {
+                        FnConsole.error("ZFS, Version, Get: Failed, Message: Version " + (zfsmanager.zfs.version ? zfsmanager.zfs.version : "0") + " < " + zfs.threshold);
+                    } else {
+                        zfs.success = true;
+                        FnConsole.log[1]("ZFS, Version, Get: Success, Version: " + (data ? data : message));
+                    }
+                })
+                .fail(function(message, data) {
+                    FnConsole.error("ZFS, Version, Get: Failed, Message: " + (data ? data : message));
+                })
+                .finally(function() {
+                    if (!zfs.success) {
+                        zfs.message = `
+                            <div class="blank-slate-pf-icon">
+                                <i class="fa fa-exclamation-circle"></i>
+                            </div>
+                            <h1>This package requires ZFS version ` + zfs.threshold + ` or later</h1>
+                            <p>If ZFS is installed, check the module is loaded into the kernel.</p>
+                            <div class="blank-slate-pf-main-action">
+                                <button id="btn-alerts-requirements-zfs-refresh" class="btn btn-primary btn-lg" tabIndex="-1">Refresh</button>
+                            </div>
+                        `;
+
+                        $("#alerts-requirements").removeClass("hidden").html(zfs.message);
+                        $("#container").addClass("hidden");
+                    } else {
+                        if (!zfsmanager.configuration.samba.manage) {
+                            $("#alerts-requirements").empty().addClass("hidden");
+                            $("#container").removeClass("hidden");
+                        }
+                    }
+                });
         });
 }
+
 
 function FnZfsVersionWarnings() {
     zfsmanager.zfs.warnings.nvmevdev = (FnZfsVersionCompare({ installed: zfsmanager.zfs.version, threshold: "0.8.3" }) < 0 ? true : false); //GitHub Issue #9730
